@@ -1,6 +1,11 @@
 from fastapi import FastAPI, HTTPException
-from telebot.async_telebot import AsyncTeleBot
-from telebot import types
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    CallbackQueryHandler
+)
 import os
 import logging
 import requests
@@ -103,7 +108,7 @@ async def init_bot():
         token = os.getenv('TELEGRAM_BOT_TOKEN')
         if not token:
             raise ValueError("Missing bot token")
-        bot = AsyncTeleBot(token=token)
+        bot = ApplicationBuilder().token(token).build()
         await bot.delete_webhook()
         bot_info = await bot.get_me()
         logger.info(f"✅ Bot connected successfully: @{bot_info.username}")
@@ -115,7 +120,7 @@ async def init_bot():
 async def register_handlers():
     """Register all bot handlers"""
     @bot.message_handler(commands=['start'])
-    async def start(message):
+    async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         try:
             keyboard = types.InlineKeyboardMarkup(row_width=2)
@@ -125,9 +130,9 @@ async def register_handlers():
                     callback_data=f"market_{market}"
                 ))
             
-            await bot.send_message(
-                message.chat.id,
-                "🌟 Welcome to SigmaPips!\n\nSelect a market to get started:",
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🌟 Welcome to SigmaPips!\n\nSelect a market to get started:",
                 reply_markup=keyboard
             )
         except Exception as e:
@@ -153,7 +158,7 @@ async def register_handlers():
                 callback_data="back"
             ))
             
-            await bot.edit_message_text(
+            await bot.bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text=f"📊 Select {market} instrument:",
@@ -185,7 +190,7 @@ async def register_handlers():
                 callback_data="back"
             ))
             
-            await bot.edit_message_text(
+            await bot.bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text=f"⏱ Select timeframe for {instrument}:",
@@ -212,7 +217,7 @@ async def register_handlers():
             
             if not market:
                 logger.error(f"❌ Could not determine market for instrument: {instrument}")
-                await bot.answer_callback_query(call.id, "Invalid instrument")
+                await bot.bot.answer_callback_query(call.id, "Invalid instrument")
                 return
             
             logger.info(f"🔄 Processing timeframe selection: user_id={user_id}, market={market}, instrument={instrument}, timeframe={timeframe}")
@@ -220,7 +225,7 @@ async def register_handlers():
             if not supabase:
                 error_msg = "❌ Supabase connection not available"
                 logger.error(error_msg)
-                await bot.answer_callback_query(call.id, error_msg)
+                await bot.bot.answer_callback_query(call.id, error_msg)
                 return
             
             try:
@@ -236,7 +241,7 @@ async def register_handlers():
                 
                 if check_response.data:
                     logger.info("❌ Combination already exists")
-                    await bot.answer_callback_query(call.id, "You already have this combination!")
+                    await bot.bot.answer_callback_query(call.id, "You already have this combination!")
                     return
                 
                 # Sla nieuwe voorkeur op
@@ -288,7 +293,7 @@ async def register_handlers():
                 # Voeg de "Add More" knop toe
                 keyboard.add(types.InlineKeyboardButton("➕ Add More", callback_data="back"))
 
-                await bot.edit_message_text(
+                await bot.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=call.message.message_id,
                     text=text,
@@ -298,12 +303,12 @@ async def register_handlers():
             except Exception as e:
                 error_msg = f"❌ Database error: {str(e)}"
                 logger.error(error_msg, exc_info=True)
-                await bot.answer_callback_query(call.id, "Failed to save preference")
+                await bot.bot.answer_callback_query(call.id, "Failed to save preference")
                 raise
             
         except Exception as e:
             logger.error(f"❌ Timeframe selection error: {str(e)}", exc_info=True)
-            await bot.answer_callback_query(call.id, "An error occurred")
+            await bot.bot.answer_callback_query(call.id, "An error occurred")
             raise
 
     @bot.callback_query_handler(func=lambda call: call.data == "back")
@@ -318,7 +323,7 @@ async def register_handlers():
                     callback_data=f"market_{market}"
                 ))
             
-            await bot.edit_message_text(
+            await bot.bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text="🌟 Select a market:",
@@ -332,7 +337,7 @@ async def register_handlers():
     async def handle_view_preferences(call):
         """Handle view preferences button"""
         await show_preferences(call.message, edit_mode=True)
-        await bot.answer_callback_query(call.id)
+        await bot.bot.answer_callback_query(call.id)
 
     @bot.callback_query_handler(func=lambda call: call.data == "refresh_calendar")
     async def handle_refresh_calendar(call):
@@ -346,7 +351,7 @@ async def register_handlers():
                 calendar_data = await response.json()
             
             if not calendar_data:
-                await bot.answer_callback_query(call.id, "No calendar events found")
+                await bot.bot.answer_callback_query(call.id, "No calendar events found")
                 return
             
             # Bouw het bericht
@@ -362,7 +367,7 @@ async def register_handlers():
                 )
             
             # Update het bericht
-            await bot.edit_message_text(
+            await bot.bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text=message,
@@ -372,11 +377,11 @@ async def register_handlers():
                 )
             )
             
-            await bot.answer_callback_query(call.id, "Calendar refreshed!")
+            await bot.bot.answer_callback_query(call.id, "Calendar refreshed!")
             
         except Exception as e:
             logger.error(f"Error refreshing calendar: {str(e)}")
-            await bot.answer_callback_query(call.id, "❌ Error refreshing calendar")
+            await bot.bot.answer_callback_query(call.id, "❌ Error refreshing calendar")
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("delete_"))
     async def handle_delete_preference(call):
@@ -405,7 +410,7 @@ async def register_handlers():
                                 callback_data=f"market_{market}"
                             ))
                         
-                        await bot.edit_message_text(
+                        await bot.bot.edit_message_text(
                             chat_id=user_id,
                             message_id=call.message.message_id,
                             text="🌟 No preferences left. Select a market to add new preferences:",
@@ -426,20 +431,20 @@ async def register_handlers():
                         # Voeg de "Add More" knop toe
                         keyboard.add(types.InlineKeyboardButton("➕ Add More", callback_data="back"))
                         
-                        await bot.edit_message_text(
+                        await bot.bot.edit_message_text(
                             chat_id=user_id,
                             message_id=call.message.message_id,
                             text=text,
                             reply_markup=keyboard
                         )
                     
-                    await bot.answer_callback_query(call.id, "✅ Preference deleted!")
+                    await bot.bot.answer_callback_query(call.id, "✅ Preference deleted!")
                 else:
-                    await bot.answer_callback_query(call.id, "❌ Could not delete preference")
+                    await bot.bot.answer_callback_query(call.id, "❌ Could not delete preference")
                 
         except Exception as e:
             logger.error(f"Error deleting preference: {str(e)}")
-            await bot.answer_callback_query(call.id, "❌ Error occurred")
+            await bot.bot.answer_callback_query(call.id, "❌ Error occurred")
 
 @app.on_event("startup")
 async def startup():
@@ -455,7 +460,7 @@ async def start_polling():
     while True:
         try:
             logger.info("Starting bot polling...")
-            await bot.infinity_polling(timeout=60)
+            await bot.bot.infinity_polling(timeout=60)
         except Exception as e:
             logger.error(f"Polling error: {str(e)}")
             await asyncio.sleep(5)
@@ -500,7 +505,7 @@ Analysis: {signal.get('aiAnalysis', 'No analysis available')}"""
                 if not chat_id:
                     continue
                     
-                await bot.send_message(
+                await bot.bot.send_message(
                     chat_id=chat_id,
                     text=message,
                     parse_mode="Markdown"
