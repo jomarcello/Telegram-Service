@@ -45,7 +45,9 @@ TIMEFRAMES = ["15m", "1h", "4h"]  # Verwijderd 5m en 1d
 required_env_vars = [
     "TELEGRAM_BOT_TOKEN",
     "SUPABASE_URL", 
-    "SUPABASE_KEY"
+    "SUPABASE_KEY",
+    "SUBSCRIBER_MATCHER_URL",
+    "CALENDAR_SERVICE_URL"
 ]
 
 for var in required_env_vars:
@@ -343,9 +345,8 @@ async def register_handlers():
     async def handle_refresh_calendar(call):
         """Handle calendar refresh button"""
         try:
-            # Haal nieuwe kalender data op
-            calendar_url = "http://tradingview-calendar-service:5000/calendar"
-            async with requests.get(calendar_url) as response:
+            calendar_url = os.getenv("CALENDAR_SERVICE_URL")
+            async with requests.get(f"{calendar_url}/calendar") as response:
                 if response.status != 200:
                     raise Exception(f"Calendar service error: {await response.text()}")
                 calendar_data = await response.json()
@@ -555,3 +556,4 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 5000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
